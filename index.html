@@ -327,6 +327,8 @@
         let ethPriceUSD = 2500;
         let ethPriceLastFetch = 0;
         let gasHistory = [];
+        let allGasHistory = []; // Persist all readings
+        let currentTimeRange = '24h';
         let alertSettings = { targetGas: 0.5, notifications: false, sound: true };
         let notificationPermission = false;
         let currentRpcIndex = 0;
@@ -462,11 +464,23 @@
         }
 
         function addToHistory(gas) {
-            gasHistory.push({
+            const entry = {
                 time: Date.now(),
                 gas: gas
-            });
-            if (gasHistory.length > 100) gasHistory.shift();
+            };
+            
+            // Add to all history
+            allGasHistory.push(entry);
+            
+            // Keep only last 7 days
+            const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+            allGasHistory = allGasHistory.filter(h => h.time > sevenDaysAgo);
+            
+            // Save to localStorage
+            saveHistory();
+            
+            // Update filtered view
+            filterHistoryByRange();
         }
 
         // ============================================
@@ -519,17 +533,106 @@
         // UI UPDATES
         // ============================================
         
-        function generateHistory() {
-            const now = Date.now();
-            for (let i = 100; i >= 0; i--) {
-                const variation = (Math.random() - 0.5) * 0.5;
-                gasHistory.push({
-                    time: now - (i * 60000),
-                    gas: 0.3 + Math.abs(variation)
-                });
+        function loadPersistedHistory() {
+            try {
+                const saved = localStorage.getItem('baseGasHistory');
+                if (saved) {
+                    allGasHistory = JSON.parse(saved);
+                    // Keep only last 7 days
+                    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+                    allGasHistory = allGasHistory.filter(h => h.time > sevenDaysAgo);
+                }
+            } catch (e) {
+                allGasHistory = [];
             }
-            updateChart();
+        }
+
+        function saveHistory() {
+            try {
+                localStorage.setItem('baseGasHistory', JSON.stringify(allGasHistory));
+            } catch (e) {
+                // Ignore storage errors
+            }
+        }
+
+        function generateHistory() {
+            loadPersistedHistory();
+            
+            // If no history, generate some initial mock data
+            if (allGasHistory.length === 0) {
+                const now = Date.now();
+                for (let i = 100; i >= 0; i--) {
+                    const variation = (Math.random() - 0.5) * 0.3;
+                    allGasHistory.push({
+                        time: now - (i * 60000),
+                        gas: Math.max(0.1, 0.3 + variation)
+                    });
+                }
+                saveHistory();
+            }
+            
+            filterHistoryByRange();
             document.getElementById('chartOverlay').classList.add('hidden');
+        }
+
+        function filterHistoryByRange() {
+            const now = Date.now();
+            let cutoff;
+            
+            switch(currentTimeRange) {
+                case '1h':
+                    cutoff = now - (60 * 60 * 1000); // 1 hour
+                    break;
+                case '24h':
+                    cutoff = now - (24 * 60 * 60 * 1000); // 24 hours
+                    break;
+                case '7d':
+                    cutoff = now - (7 * 24 * 60 * 60 * 1000); // 7 days
+                    break;
+                default:
+                    cutoff = now - (24 * 60 * 60 * 1000);
+            }
+            
+            gasHistory = allGasHistory.filter(h => h.time >= cutoff);
+            
+            // If not enough data points, pad with interpolated data
+            if (gasHistory.length < 10 && allGasHistory.length > 0) {
+                const oldest = allGasHistory[0];
+                const newest = allGasHistory[allGasHistory.length - 1];
+                const step = (newest.time - oldest.time) / 50;
+                
+                const interpolated = [];
+                for (let i = 0; i < 50; i++) {
+                    interpolated.push({
+                        time: oldest.time + (i * step),
+                        gas: oldest.gas + ((newest.gas - oldest.gas) * (i / 50))
+                    });
+                }
+                gasHistory = interpolated;
+            }
+            
+            updateChart();
+            updateTimeLabels();
+        }
+
+        function updateTimeLabels() {
+            if (gasHistory.length === 0) return;
+            
+            const startTime = new Date(gasHistory[0].time);
+            const endTime = new Date(gasHistory[gasHistory.length - 1].time);
+            
+            let startLabel, endLabel;
+            
+            if (currentTimeRange === '7d') {
+                startLabel = startTime.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                endLabel = 'Now';
+            } else {
+                startLabel = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                endLabel = endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            }
+            
+            document.getElementById('chartStart').textContent = startLabel;
+            document.getElementById('chartEnd').textContent = endLabel;
         }
 
         function updateDisplay() {
@@ -648,19 +751,23 @@
             
             document.getElementById('chartPath').setAttribute('d', pathD);
             document.getElementById('chartArea').setAttribute('d', areaD);
-            
-            const startTime = new Date(gasHistory[0].time);
-            document.getElementById('chartStart').textContent = startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
 
         function setTimeRange(range) {
+            currentTimeRange = range;
+            
+            // Update button styles
             document.querySelectorAll('.time-btn').forEach(btn => {
                 btn.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
                 btn.classList.add('bg-white/5', 'text-gray-400', 'border-white/10');
+                
+                if (btn.dataset.range === range) {
+                    btn.classList.remove('bg-white/5', 'text-gray-400', 'border-white/10');
+                    btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
+                }
             });
-            event.target.classList.remove('bg-white/5', 'text-gray-400', 'border-white/10');
-            event.target.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/30');
-            generateHistory();
+            
+            filterHistoryByRange();
         }
 
         // ============================================
