@@ -33,6 +33,17 @@
         .glass { background: rgba(255,255,255,0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.05); }
         .chart-line { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: draw 2s ease-out forwards; }
         @keyframes draw { to { stroke-dashoffset: 0; } }
+        @keyframes pulse-dot {
+            0%, 100% { r: 5; opacity: 1; }
+            50% { r: 7; opacity: 0.8; }
+        }
+        #currentPoint { animation: pulse-dot 2s ease-in-out infinite; }
+        .chart-line { filter: drop-shadow(0 0 4px rgba(0, 82, 255, 0.5)); }
+        #chartContainer { cursor: crosshair; }
+        #chartTooltip {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            min-width: 100px;
+        }
         .logo-container { position: relative; }
         .logo-glow { position: absolute; inset: -4px; background: linear-gradient(135deg, #0052ff 0%, #00d4ff 50%, #0052ff 100%); border-radius: 14px; opacity: 0.5; filter: blur(8px); animation: logo-glow 3s ease-in-out infinite; }
         @keyframes logo-glow {
@@ -119,25 +130,55 @@
             <!-- Chart Section -->
             <div class="lg:col-span-2 glass rounded-2xl p-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="font-semibold" id="chartTitle">Gas Price History (24h)</h2>
+                    <div>
+                        <h2 class="font-semibold" id="chartTitle">Gas Price History (24h)</h2>
+                        <div class="flex items-center gap-4 mt-1">
+                            <span class="text-xs text-gray-500">Min: <span id="chartMin" class="text-green-400">--</span></span>
+                            <span class="text-xs text-gray-500">Avg: <span id="chartAvg" class="text-blue-400">--</span></span>
+                            <span class="text-xs text-gray-500">Max: <span id="chartMax" class="text-red-400">--</span></span>
+                        </div>
+                    </div>
                     <div class="flex gap-2">
                         <button onclick="setTimeRange('1h')" class="time-btn px-3 py-1 rounded-lg text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30" data-range="1h">1H</button>
                         <button onclick="setTimeRange('24h')" class="time-btn px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10" data-range="24h">24H</button>
                         <button onclick="setTimeRange('7d')" class="time-btn px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10" data-range="7d">7D</button>
                     </div>
                 </div>
-                <div class="relative h-64">
+                <div class="relative h-64 group" id="chartContainer">
                     <svg id="gasChart" class="w-full h-full" viewBox="0 0 600 200" preserveAspectRatio="none">
                         <defs>
                             <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#0052ff" stop-opacity="0.3"/>
+                                <stop offset="0%" stop-color="#0052ff" stop-opacity="0.4"/>
+                                <stop offset="50%" stop-color="#0052ff" stop-opacity="0.15"/>
                                 <stop offset="100%" stop-color="#0052ff" stop-opacity="0"/>
                             </linearGradient>
+                            <linearGradient id="lineGradient" x1="0" y1="0" x2="600" y2="0" gradientUnits="userSpaceOnUse">
+                                <stop offset="0%" stop-color="#00d4ff"/>
+                                <stop offset="50%" stop-color="#0052ff"/>
+                                <stop offset="100%" stop-color="#00d4ff"/>
+                            </linearGradient>
+                            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feGaussianBlur stdDeviation="2" result="blur"/>
+                                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                            </filter>
                         </defs>
+                        <!-- Grid lines -->
+                        <g id="gridLines" stroke="rgba(255,255,255,0.05)" stroke-width="1" stroke-dasharray="4,4"></g>
+                        <!-- Area fill -->
                         <path id="chartArea" fill="url(#chartGradient)" d=""/>
-                        <path id="chartPath" fill="none" stroke="#0052ff" stroke-width="2" class="chart-line" d=""/>
+                        <!-- Line -->
+                        <path id="chartPath" fill="none" stroke="url(#lineGradient)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)" class="chart-line" d=""/>
+                        <!-- Current price dot -->
+                        <circle id="currentPoint" r="5" fill="#00d4ff" stroke="#0052ff" stroke-width="2" class="hidden"/>
+                        <!-- Average line -->
+                        <line id="avgLine" stroke="rgba(0,212,255,0.3)" stroke-width="1" stroke-dasharray="5,5" class="hidden"/>
                     </svg>
-                    <div id="chartOverlay" class="absolute inset-0 flex items-center justify-center">
+                    <!-- Tooltip -->
+                    <div id="chartTooltip" class="absolute pointer-events-none opacity-0 transition-opacity bg-gray-900/90 backdrop-blur border border-white/10 rounded-lg px-3 py-2 text-xs z-10" style="top: 0; left: 0;">
+                        <div class="text-gray-400" id="tooltipTime">--:--</div>
+                        <div class="text-white font-semibold" id="tooltipGas">-- gwei</div>
+                    </div>
+                    <div id="chartOverlay" class="absolute inset-0 flex items-center justify-center bg-black/50">
                         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
                     </div>
                 </div>
@@ -344,7 +385,58 @@
             // Set up intervals
             setInterval(fetchGasPrice, UPDATE_INTERVAL);
             setInterval(updateLastUpdateTime, 1000);
+            
+            // Set up chart tooltip interaction
+            setupChartTooltip();
         });
+
+        function setupChartTooltip() {
+            const container = document.getElementById('chartContainer');
+            const tooltip = document.getElementById('chartTooltip');
+            const svg = document.getElementById('gasChart');
+            
+            if (!container || !tooltip || !svg) return;
+            
+            container.addEventListener('mousemove', (e) => {
+                if (!window.chartPoints || window.chartPoints.length === 0) return;
+                
+                const rect = svg.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (600 / rect.width);
+                
+                // Find nearest point
+                let nearest = window.chartPoints[0];
+                let minDist = Math.abs(x - nearest.x);
+                
+                for (const point of window.chartPoints) {
+                    const dist = Math.abs(x - point.x);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        nearest = point;
+                    }
+                }
+                
+                // Show tooltip
+                tooltip.style.opacity = '1';
+                tooltip.style.left = `${(nearest.x / 600) * 100}%`;
+                tooltip.style.top = `${(nearest.y / 200) * 100}%`;
+                tooltip.style.transform = 'translate(-50%, -120%)';
+                
+                const date = new Date(nearest.time);
+                let timeStr;
+                if (currentTimeRange === '7d') {
+                    timeStr = date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                } else {
+                    timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                }
+                
+                document.getElementById('tooltipTime').textContent = timeStr;
+                document.getElementById('tooltipGas').textContent = `${nearest.gas.toFixed(4)} gwei`;
+            });
+            
+            container.addEventListener('mouseleave', () => {
+                tooltip.style.opacity = '0';
+            });
+        }
 
         function initializeData() {
             fetchGasPrice();
@@ -734,23 +826,59 @@
             
             const width = 600;
             const height = 200;
-            const padding = 20;
+            const padding = 25;
             
             const minGas = Math.min(...gasHistory.map(h => h.gas));
             const maxGas = Math.max(...gasHistory.map(h => h.gas));
+            const avgGas = gasHistory.reduce((a, b) => a + b.gas, 0) / gasHistory.length;
             const range = maxGas - minGas || 1;
             
+            // Update min/avg/max display
+            document.getElementById('chartMin').textContent = minGas.toFixed(3);
+            document.getElementById('chartAvg').textContent = avgGas.toFixed(3);
+            document.getElementById('chartMax').textContent = maxGas.toFixed(3);
+            
+            // Generate points with some smoothing
             const points = gasHistory.map((h, i) => {
                 const x = (i / (gasHistory.length - 1)) * width;
                 const y = height - padding - ((h.gas - minGas) / range) * (height - 2 * padding);
-                return `${x},${y}`;
+                return { x, y, gas: h.gas, time: h.time };
             });
             
-            const pathD = `M${points.join(' L')}`;
+            // Create smooth path using simple line (can be enhanced with bezier curves)
+            const pathD = points.map((p, i) => (i === 0 ? 'M' : 'L') + `${p.x},${p.y}`).join(' ');
             const areaD = `${pathD} L${width},${height} L0,${height} Z`;
             
             document.getElementById('chartPath').setAttribute('d', pathD);
             document.getElementById('chartArea').setAttribute('d', areaD);
+            
+            // Draw grid lines
+            const gridLines = document.getElementById('gridLines');
+            let gridHTML = '';
+            for (let i = 0; i <= 4; i++) {
+                const y = padding + (i * (height - 2 * padding) / 4);
+                gridHTML += `<line x1="0" y1="${y}" x2="${width}" y2="${y}"/>`;
+            }
+            gridLines.innerHTML = gridHTML;
+            
+            // Draw average line
+            const avgY = height - padding - ((avgGas - minGas) / range) * (height - 2 * padding);
+            const avgLine = document.getElementById('avgLine');
+            avgLine.setAttribute('x1', 0);
+            avgLine.setAttribute('y1', avgY);
+            avgLine.setAttribute('x2', width);
+            avgLine.setAttribute('y2', avgY);
+            avgLine.classList.remove('hidden');
+            
+            // Draw current point
+            const lastPoint = points[points.length - 1];
+            const currentPoint = document.getElementById('currentPoint');
+            currentPoint.setAttribute('cx', lastPoint.x);
+            currentPoint.setAttribute('cy', lastPoint.y);
+            currentPoint.classList.remove('hidden');
+            
+            // Store points for tooltip
+            window.chartPoints = points;
         }
 
         function setTimeRange(range) {
