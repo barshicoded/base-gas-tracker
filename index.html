@@ -782,18 +782,25 @@
             const savings = ((ethGas - currentGasPrice) / ethGas * 100).toFixed(1);
             document.getElementById('savings').textContent = `${savings}%`;
             
-            // Update status
+            // Update status and tab title
             const statusEl = document.getElementById('gasStatus');
+            let emoji;
             if (currentGasPrice < 0.3) {
                 statusEl.innerHTML = '🟢 Great time to transact';
                 statusEl.className = 'mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400';
+                emoji = '🟢';
             } else if (currentGasPrice < 0.8) {
                 statusEl.innerHTML = '🟡 Moderate gas prices';
                 statusEl.className = 'mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400';
+                emoji = '🟡';
             } else {
                 statusEl.innerHTML = '🔴 High congestion';
                 statusEl.className = 'mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400';
+                emoji = '🔴';
             }
+            
+            // Update browser tab title with live gas price
+            document.title = `${emoji} ${currentGasPrice.toFixed(3)} gwei | Base Gas Tracker`;
             
             updateCostEstimates();
             updateLastUpdateTime();
