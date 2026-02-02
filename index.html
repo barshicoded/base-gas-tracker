@@ -119,7 +119,7 @@
             <!-- Chart Section -->
             <div class="lg:col-span-2 glass rounded-2xl p-6">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="font-semibold">Gas Price History (24h)</h2>
+                    <h2 class="font-semibold" id="chartTitle">Gas Price History (24h)</h2>
                     <div class="flex gap-2">
                         <button onclick="setTimeRange('1h')" class="time-btn px-3 py-1 rounded-lg text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30" data-range="1h">1H</button>
                         <button onclick="setTimeRange('24h')" class="time-btn px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10" data-range="24h">24H</button>
@@ -755,6 +755,14 @@
 
         function setTimeRange(range) {
             currentTimeRange = range;
+            
+            // Update title
+            const rangeLabels = {
+                '1h': '1 Hour',
+                '24h': '24 Hours',
+                '7d': '7 Days'
+            };
+            document.getElementById('chartTitle').textContent = `Gas Price History (${rangeLabels[range]})`;
             
             // Update button styles
             document.querySelectorAll('.time-btn').forEach(btn => {
