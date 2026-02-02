@@ -359,6 +359,12 @@
         ];
         
         const ETH_PRICE_API = 'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd';
+        
+        // Alternative gas price sources for verification
+        const GAS_API_SOURCES = [
+            'https://api.blocknative.com/gasprices/blockchain/8453',
+            'https://basegasstation.com/api/v1/gas' // Community API if available
+        ];
         const UPDATE_INTERVAL = 15000; // 15 seconds
         const PRICE_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes for ETH price
         const MAX_RETRIES = 3;
@@ -526,8 +532,14 @@
                 
                 try {
                     const provider = new ethers.JsonRpcProvider(rpcUrl);
-                    const feeData = await provider.getFeeData();
-                    currentGasPrice = Number(ethers.formatUnits(feeData.gasPrice, 'gwei'));
+                    
+                    // Use eth_gasPrice for standard gas price (matches BaseScan)
+                    const gasPriceHex = await provider.send('eth_gasPrice', []);
+                    const gasPriceWei = BigInt(gasPriceHex);
+                    currentGasPrice = Number(ethers.formatUnits(gasPriceWei, 'gwei'));
+                    
+                    // Log for debugging
+                    console.log('Gas price fetched:', currentGasPrice.toFixed(4), 'gwei from', rpcUrl);
                     
                     // Success - update display
                     updateDisplay();
